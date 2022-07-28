@@ -1,0 +1,106 @@
+version: "3.9"
+
+services:
+  pg_db:
+    image: postgres
+    platform: linux/amd64
+    volumes:
+      - pg_db:/var/lib/postgresql/data
+    env_file:
+      - db.env
+    container_name: pg_db
+
+  status_server:
+    build:
+      context: .
+      dockerfile: ./status_server/Dockerfile
+    volumes:
+      - ./status_server:/usr/src/app/status_server/
+    command: bash entrypoint.sh
+    container_name: test_status_server
+    ports:
+      - 8005:8005
+    env_file:
+      - ./status_server/.env
+    depends_on:
+      - pg_db
+
+  server1:
+    build:
+      context: .
+      dockerfile: ./server1/Dockerfile
+    volumes:
+      - ./server1:/usr/src/app/server1/
+    command: bash entrypoint.sh
+    container_name: test_server1
+    ports:
+      - 8001:8001
+    environment:
+      - SERVER_URL=172.17.0.1:8001
+      - STATUS_SERVER_URL=172.17.0.1:8005
+      - DJANGO_SECRET=django-insecure-ozs2fb%l0*@1ig(ukqe+l66d77u!xs-oo12&=pq7nn@9u#)a(y
+      - POSTGRES_USER=matsubus
+      - POSTGRES_NAME=postgres
+      - POSTGRES_PASSWORD=1234
+      - POSTGRES_HOST=pg_db
+    depends_on:
+      - pg_db
+
+  server2:
+    build:
+      context: .
+      dockerfile: ./server1/Dockerfile
+    volumes:
+      - ./server1:/usr/src/app/server1/
+    command: gunicorn server1.wsgi:application -w 4 --bind 0.0.0.0:8002 --enable-stdio-inheritance
+    container_name: test_server2
+    ports:
+      - 8002:8002
+    environment:
+      - SERVER_URL=172.17.0.1:8002
+      - STATUS_SERVER_URL=172.17.0.1:8005
+      - DJANGO_SECRET=django-insecure-ozs2fb%l0*@1ig(ukqe+l66d77u!xs-oo12&=pq7nn@9u#)a(y
+      - POSTGRES_USER=matsubus
+      - POSTGRES_NAME=postgres
+      - POSTGRES_PASSWORD=1234
+      - POSTGRES_HOST=pg_db
+    depends_on:
+      - pg_db
+
+  balancer:
+    build:
+      context: .
+      dockerfile: ./balancer/Dockerfile
+    command: bash entrypoint.sh
+    container_name: test_balancer
+    volumes:
+      - ./balancer:/usr/src/app/balancer/
+    ports:
+      - 8004:8004
+    env_file:
+      - ./balancer/.env
+    depends_on:
+      - pg_db
+
+
+  nginx:
+    build: ./nginx
+    volumes:
+      - nginx_conf:/etc/nginx/conf.d/
+    ports:
+      - 80:80
+      - 81:81
+      - 82:82
+      - 85:85
+    depends_on:
+      - server1
+      - server2
+      - status_server
+    restart: always
+
+volumes:
+  pg_db:
+   driver: local
+  balancer:
+  server1:
+  nginx_conf:
